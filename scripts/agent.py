@@ -7,7 +7,7 @@ __version__ = "1.0.0"
 from network import Network
 from my_constants import *
 
-from threading import Thread
+from threading import Thread, Lock
 import numpy as np
 from time import sleep
 import random
@@ -34,7 +34,6 @@ class Agent:
         print(f"Initial cell value: {self.cell_val}")  # Print the initial cell value
         self.current_direction = None  # Direction actuelle du robot
 
-
         # Initialize moves dictionary
         self.moves = {0 :(0, 0), # Stand still
                       1 : (-1, 0), # Left
@@ -51,82 +50,6 @@ class Agent:
         Thread(target=self.msg_cb, daemon=True).start()
         self.wait_for_connected_agent()
 
-    def msg_cb(self): 
-        """ Method used to handle incoming messages """
-        while self.running:
-            try:
-                msg = self.network.receive()
-
-                if not msg:
-                    continue  # Si le message est vide ou None, continue
-
-                self.msg = msg
-
-                # Si le message contient un header MOVE
-                if msg["header"] == MOVE:
-                    self.x, self.y = msg["x"], msg["y"]
-                    self.prev_cell_val = self.cell_val  # store the previous cell value before updating
-                    self.cell_val = msg.get("cell_val", self.cell_val)  # Update the cell value if available in the message
-                    print(f"New position: ({self.x}, {self.y}), Cell value: {self.cell_val}")
-
-                    # Compare previous and current cell values
-                    if self.cell_val != self.prev_cell_val:
-                        print(f"Cell value has changed! Previous: {self.prev_cell_val}, Current: {self.cell_val}")
-                    else:
-                        print("Cell value is the same as before.")
-
-                    if self.cell_val == 1:
-                        print("Object found at position:", (self.x, self.y))
-                        self.network.send({"header": GET_ITEM_OWNER, "agent_id": self.agent_id})
-                        item_owner_response = self.network.receive()  # Wait for the server's response
-                        
-                        if item_owner_response["header"] == GET_ITEM_OWNER:
-                            item_owner = item_owner_response.get("owner", None)
-                            item_type = item_owner_response.get("type", None)
-
-                            if item_owner is not None:
-                                print(f"Object belongs to agent with ID: {item_owner}")
-                                if item_type == KEY_TYPE:
-                                    print("This is a key!")
-                                elif item_type == BOX_TYPE:
-                                    print("This is a box!")
-
-                                if item_owner != self.agent_id:
-                                    self.network.send({
-                                        "header": BROADCAST_MSG,
-                                        "to_agent": item_owner,
-                                        "position": {"x": self.x, "y": self.y},
-                                        "msg": f"Object found at ({self.x}, {self.y})"
-                                    })
-                                    print(f"Coordinates of the object sent to agent {item_owner}.")
-
-                elif msg["header"] == BROADCAST_MSG:
-                    # Handle broadcast messages for received positions
-                    target_position = msg.get("position")
-                    sender = msg.get("to_agent")
-                    
-                    if target_position and sender == self.agent_id:
-                        print(f"Received target position {target_position} from agent {msg.get('from_agent')}.")
-                        
-                        # Interrompre l'exploration et se diriger vers la cible
-                        self.running = False  # Stop the random exploration loop
-                        self.move_to_position(target_position["x"], target_position["y"])
-                        self.running = True  # Resume exploration after reaching the target
-                        print('Arrived')
-
-                # Pour les autres messages non gérés
-                elif msg["header"] == GET_NB_AGENTS:
-                    self.nb_agent_expected = msg["nb_agents"]
-                elif msg["header"] == GET_NB_CONNECTED_AGENTS:
-                    self.nb_agent_connected = msg["nb_connected_agents"]
-
-                print("hellooo: ", msg)
-                print("agent_id ", self.agent_id)
-            
-            except Exception as e:
-                print(f"Error while processing the message: {e}")
-                continue  # Si une erreur se produit, passez au message suivant
-
     def wait_for_connected_agent(self):
         self.network.send({"header": GET_NB_AGENTS})
         check_conn_agent = True
@@ -135,79 +58,213 @@ class Agent:
                 print("Both agents are connected!")
                 check_conn_agent = False
 
+        print(f"Agent initialized at position ({self.x}, {self.y}) with cell value {self.cell_val}.")
+
+    def msg_cb(self):
+        """Handle incoming messages."""
+        while self.running:
+            try:
+                msg = self.network.receive()
+                print(f"Raw msg : {msg}")
+                if not msg:
+                    continue
+
+                header = msg.get("header")
+                print(f"Header of message : {header}")
+                if header == MOVE:
+                    print(f"My header is Move")
+                    self._update_position(msg)
+
+                    # Handle the status message if present
+                    status = msg.get("status")
+                    if status:
+                        print(f"Status update: {status}")  # Print the status message
+
+                elif header == BROADCAST_MSG:
+                    print(f"My header is Broadcast")
+                    self._handle_broadcast(msg)
+                    print("I received BROADCAST message")
+                elif header == GET_NB_AGENTS:
+                    print(f"My header is GET_NB_AGENTS")
+                    self.nb_agent_expected = msg["nb_agents"]
+                elif header == GET_NB_CONNECTED_AGENTS:
+                    print(f"My header is GET_NB_CONNECTED_AGENTS")
+                    self.nb_agent_connected = msg["nb_connected_agents"]
+                else:
+                    print(f"Unexpected message header: {header}")
+
+            except ValueError as e:
+                print(f"Value error in message processing: {e}")
+            except KeyError as e:
+                print(f"Key error in message processing: {e}")
+            except Exception as e:
+                print(f"Error while processing message: {e}")
+
+            print("I finished msg_cb function")
+
+            """Handle incoming messages."""
+            while self.running:
+                try:
+                    msg = self.network.receive()
+                    print(f"Raw msg : {msg}")
+                    if not msg:
+                        continue
+
+                    header = msg.get("header")
+                    print(f"Header of message : {header}")
+                    if header == MOVE:
+                        print(f"My header is Move")
+                        self._update_position(msg)
+                    elif header == BROADCAST_MSG:
+                        print(f"My header is Broadcast")
+                        self._handle_broadcast(msg)
+                        print("I received BROADCAST message")
+                    elif header == GET_NB_AGENTS:
+                        print(f"My header is GET_NB_AGENTS")
+                        self.nb_agent_expected = msg["nb_agents"]
+                    elif header == GET_NB_CONNECTED_AGENTS:
+                        print(f"My header is GET_NB_CONNECTED_AGENTS")
+                        self.nb_agent_connected = msg["nb_connected_agents"]
+                    else:
+                        print(f"Unexpected message header: {header}")
+
+                except ValueError as e:
+                    print(f"Value error in message processing: {e}")
+                except KeyError as e:
+                    print(f"Key error in message processing: {e}")
+                except Exception as e:
+                    print(f"Error while processing message: {e}")
+
+                print("I finished msg_cb function")
+
+    def _update_position(self, msg):
+        """Update agent's position and handle cell value changes."""
+        print("I'm in update position function")
+        self.x, self.y = msg["x"], msg["y"]
+        self.prev_cell_val = self.cell_val
+        self.cell_val = msg.get("cell_val", self.cell_val)
+        print(f"Position updated to ({self.x}, {self.y}), Cell value: {self.cell_val}, Agent ID : {self.agent_id}")
+
+        if self.cell_val != self.prev_cell_val:
+            print(f"Cell value changed from {self.prev_cell_val} to {self.cell_val}")
+        else:
+            print("Cell value unchanged.")
+
+        if self.cell_val == 1:
+            self._handle_object_found()
+        else:
+            pass
+        
+        print("I finished update position function")
+
+    def _handle_object_found(self):
+        """Handle cases where an object is found."""
+        print(f"Object found at position ({self.x}, {self.y})")
+        self.network.send({"header": GET_ITEM_OWNER, "agent_id": self.agent_id})
+        response = self.network.receive()
+
+        if response["header"] == GET_ITEM_OWNER:
+            owner = response.get("owner")
+            obj_type = response.get("type")
+            print(f"Owner : {owner} / Object : {obj_type} / Agent ID : {self.agent_id}")
+
+            if owner is not None:
+                print(f"Object belongs to agent {owner}")
+                if obj_type == KEY_TYPE:
+                    print("This is a key!")
+                elif obj_type == BOX_TYPE:
+                    print("This is a box!")
+
+                if owner != self.agent_id:
+                    self.network.send({
+                        "header": BROADCAST_MSG,
+                        "to_agent": owner,
+                        "position": {"x": self.x, "y": self.y},
+                        "msg": f"Object found at ({self.x}, {self.y})"
+                    })
+                    print(f"Coordinates sent to agent {owner}.")
+
+    def _handle_broadcast(self, msg):
+        """Handle broadcast messages."""
+        print("Handling BROADCAST message...")
+        target_position = msg.get("position")
+        sender = msg.get("to_agent")
+
+        if target_position and (sender is None or sender == self.agent_id):
+            print(f"Received target position {target_position} for agent {self.agent_id} from {sender}.")
+            self.move_to_position(target_position["x"], target_position["y"])
+        else:
+            print(f"Broadcast message ignored. Sender: {sender}, Position: {target_position}")
+
+    def _wait_for_agents(self):
+        """Wait for all agents to connect."""
+        self.network.send({"header": GET_NB_AGENTS})
+        while self.nb_agent_expected != self.nb_agent_connected:
+            sleep(0.1)
+        print("All agents are connected!")
+
+    def calculate_direction(self, target_x, target_y):
+        """Calculate the direction to move towards a target position."""
+        if self.y < target_y:
+            return 8 if self.x < target_x else 7 if self.x > target_x else 4
+        elif self.y > target_y:
+            return 6 if self.x < target_x else 5 if self.x > target_x else 3
+        else:
+            return 2 if self.x < target_x else 1 if self.x > target_x else 0
+
     def move_to_position(self, target_x, target_y):
-        """ Move the robot automatically to the target position (considering map bounds). """
-        print(f"Moving to position: ({target_x}, {target_y})")
-
+        """Move the agent to a target position using the MOVE header to update position globally."""
+        print(f"Starting movement to ({target_x}, {target_y}) from ({self.x}, {self.y})")
+        
         while (self.x, self.y) != (target_x, target_y):
-            print(f"Current position: ({self.x}, {self.y})")  # Log current position
-
-            direction = None
-            if self.y < target_y:  # Move down
-                if self.x < target_x:  # Move diagonally down-right
-                    direction = 8
-                elif self.x > target_x:  # Move diagonally down-left
-                    direction = 7
-                else:  # Move straight down
-                    direction = 4
-            elif self.y > target_y:  # Move up
-                if self.x < target_x:  # Move diagonally up-right
-                    direction = 6
-                elif self.x > target_x:  # Move diagonally up-left
-                    direction = 5
-                else:  # Move straight up
-                    direction = 3
-            else:  # Same row
-                if self.x < target_x:  # Move right
-                    direction = 2
-                elif self.x > target_x:  # Move left
-                    direction = 1
-
-            # Get the proposed new position
-            dx, dy = self.moves[direction] if direction else (0, 0)
+            # Calculate the direction and the next position
+            direction = self.calculate_direction(target_x, target_y)
+            dx, dy = self.moves[direction]
             new_x, new_y = self.x + dx, self.y + dy
 
             # Check if the move is within bounds
             if 0 <= new_x < self.w and 0 <= new_y < self.h:
-                print(f"Moving in direction {direction}: New position will be ({new_x}, {new_y})")
-                self.network.send({"header": MOVE, "direction": direction})
-                # After the move, update the agent's position
-                self.x, self.y = new_x, new_y  # Update position manually
-            else:
-                print(f"Attempted move out of bounds: ({new_x}, {new_y}). Skipping move.")
+                print(f"Moving to ({new_x}, {new_y}) in direction {direction}")
+                    
+                # Update the position locally
+                self.x, self.y = new_x, new_y
+                print(f"Local position updated to: ({self.x}, {self.y})")
 
-            # Wait for position update
-            sleep(0.5)
-            print(self.msg["header"])
+                # Prepare the global update message
+                global_update_msg = {
+                    "header": MOVE,
+                    "direction": direction,
+                    "current_position": {"x": self.x, "y": self.y},  # Include updated position
+                    "status": "Updating position in target reaching"  # Add status message
+                }
+                
+                # Print the message before sending it
+                print(f"Global update msg: {global_update_msg}")
+
+                # Send MOVE message to update the position globally
+                self.network.send(global_update_msg)
+
+                # Add a small delay to allow other threads to process messages
+                sleep(0.1)  # Short sleep to allow msg_cb to handle incoming messages
+            else:
+                print(f"Move out of bounds: ({new_x}, {new_y}). Movement halted.")
+                break
+
+            sleep(1)  # Simulate movement delay
+
+        print(f"Reached target position: ({self.x}, {self.y}).")
 
     def explore_environment(self):
-        """ Agent starts exploring the environment randomly or based on cell values. """
+        """Randomly explore the environment."""
         while self.running:
-            # Si aucune direction n'est définie (début) ou si un changement de direction est requis
-            if self.current_direction is None:
-                self.current_direction = random.randint(1, 8)  # Choisir une direction initiale aléatoire
+            direction = random.randint(1, 8)
+            dx, dy = self.moves[direction]
+            target_x, target_y = self.x + dx, self.y + dy
 
-            dx, dy = self.moves[self.current_direction]  # Obtenir les déplacements correspondants à la direction
-            target_x = self.x + dx
-            target_y = self.y + dy
-
-            # Vérifier si le mouvement proposé est à l'extérieur des limites de la carte
-            if not (0 <= target_x < self.w and 0 <= target_y < self.h):
-                print(f"Out of bounds! Changing direction. Current: ({self.x}, {self.y}), Target: ({target_x}, {target_y})")
-                self.current_direction = random.randint(1, 8)  # Rechoisir une direction aléatoire
-                continue  # Passer à la prochaine itération
-
-            # Si la valeur de la cellule actuelle est supérieure à la précédente, continuer dans la même direction
-            if self.cell_val > self.prev_cell_val:
-                print(f"Cell value increased. Continuing in direction {self.current_direction}.")
+            if 0 <= target_x < self.w and 0 <= target_y < self.h:
+                self.move_to_position(target_x, target_y)
             else:
-                # Sinon, choisir une nouvelle direction aléatoire
-                self.current_direction = random.randint(1, 8)
-                print(f"Cell value did not increase. Changing to direction {self.current_direction}.")
-
-            # Déplacer le robot vers la nouvelle position
-            print(f"Moving to position: ({target_x}, {target_y}) in direction {self.current_direction}.")
-            self.move_to_position(target_x, target_y)
+                print(f"Direction {direction} out of bounds.")
 
             sleep(1)
 
