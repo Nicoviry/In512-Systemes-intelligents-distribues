@@ -11,6 +11,8 @@ import sys, argparse, os
 from game import Game
 from my_constants import *
 from time import sleep
+#import matplotlib.pyplot as plt
+
 
 if os.name == "nt": #If you are on Windows
     screen_resolution_to_fix = True  #Set this variable to True if you face resolution issues when the GUI appears
@@ -24,6 +26,11 @@ class Server:
     def __init__(self, conf, nb_agents, map_id):
         """ Initialize the server """
         self.game = Game(nb_agents, map_id)
+
+        #VISUALIZE THE MAP BEFORE LAUNCHING
+        #plt.imshow(self.game.map_real, cmap='gray')
+        #plt.show()
+
         self.nb_disconnected = 0
         self.id_count = 0
         self.conf = conf
@@ -105,4 +112,4 @@ if __name__ == "__main__":
     if not args.map_id in range(1, 4):    #There are only 3 maps
         print("There are only 2 maps!")
         sys.exit()
-    server = Server((args.ip_server, port), args.nb_agents, args.map_id)
+    server = Server((args.ip_server, port), 3, 1) #args.map_id)

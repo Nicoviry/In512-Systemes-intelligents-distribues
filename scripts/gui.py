@@ -11,7 +11,7 @@ img_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 
 
 class GUI:
-    def __init__(self, game, fps=10, cell_size=40):
+    def __init__(self, game, fps=10, cell_size=30): # before cell_size=40
         self.game = game
         self.w, self.h = self.game.map_w, self.game.map_h
         self.fps = fps
@@ -45,8 +45,12 @@ class GUI:
         agent_img = pygame.image.load(img_folder + "/robot.png")
         agent_img = pygame.transform.scale(agent_img, (self.cell_size, self.cell_size))
         self.agents = [agent_img.copy() for _ in range(self.game.nb_agents)]
+        #obstacles
+        brick_img = pygame.image.load(img_folder + "/brick.png")
+        brick_img = pygame.transform.scale(brick_img, (self.cell_size, self.cell_size))
+        self.brick = [brick_img.copy() for _ in range(self.game.nb_brick)]
 
-    
+
     def on_event(self, event):
         if event.type == pygame.QUIT:
             self.running = False
@@ -95,5 +99,12 @@ class GUI:
             #agents
             self.screen.blit(self.agents[i], self.agents[i].get_rect(center=(self.game.agents[i].x*self.cell_size + self.cell_size//2, self.game.agents[i].y*self.cell_size + self.cell_size//2)))
             self.screen.blit(self.text_agents[i], self.text_agents[i].get_rect(center=(self.game.agents[i].x*self.cell_size + self.cell_size-self.text_agents[i].get_width()//2, self.game.agents[i].y*self.cell_size + self.cell_size-self.text_agents[i].get_height()//2)))
+
+            # obstacles
+            for block_key, block_data in self.game.liste_coor_brick.items():
+                for idx in range(0, 5):  # Bricks in the block
+                    y, x = block_data[f"bricks_{idx+1}"]  # Get coordinates
+                    pygame.draw.rect(self.screen, "black", (x * self.cell_size, y * self.cell_size, self.cell_size, self.cell_size), width=3) # Draw the brick
+                    self.screen.blit(self.brick[idx], self.brick[idx].get_rect(topleft=(x * self.cell_size, y * self.cell_size)))
 
         pygame.display.update()

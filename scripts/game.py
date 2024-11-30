@@ -12,6 +12,8 @@ from my_constants import *
 from gui import GUI
 from time import sleep
 
+from operator import add
+
 
 class Game:
     """ Handle the whole game """
@@ -19,34 +21,43 @@ class Game:
         self.nb_agents = nb_agents
         self.nb_ready = 0
         self.agent_id = 0
+        self.nb_brick = 0 # Count the total number of bricks to draw
+        self.liste_coor_brick = {} # Save the position of all set of brick | Updated in the function self.create_obstacle
         self.moves = [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
         self.agent_paths = [None]*nb_agents
-        self.load_map(map_id)
+        self.load_map(map_id) 
         self.gui = GUI(self)
         
 
-    
+    # MODIFIED TO ADD OBSTACLES
     def load_map(self, map_id):
-        """ Load a map """
+        """ Load a map """ # Obstacles are added in config.json 
         json_filename = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "config.json")
         with open(json_filename, "r") as json_file:
-            self.map_cfg = json.load(json_file)[f"map_{map_id}"]        
+            self.map_cfg = json.load(json_file)[f"map_{map_id}"]
         
-        self.agents, self.keys, self.boxes = [], [], []
+        # The three following lines have been moved here because we need to update the map just after
+        self.map_w, self.map_h = self.map_cfg["width"], self.map_cfg["height"]
+        self.map_real = np.zeros(shape=(self.map_h, self.map_w))
+        self.offsets = [[(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)], [(-2, -2), (-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (2, -1), (-2, 0), (2, 0), (-2, 1), ( 2, 1), (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2)]]
+
+        self.agents, self.keys, self.boxes, self.obstacles = [], [], [], []
         for i in range(self.nb_agents):
             self.agents.append(Agent(i+1, self.map_cfg[f"agent_{i+1}"]["x"], self.map_cfg[f"agent_{i+1}"]["y"], self.map_cfg[f"agent_{i+1}"]["color"]))
             self.keys.append(Key(self.map_cfg[f"key_{i+1}"]["x"], self.map_cfg[f"key_{i+1}"]["y"]))
             self.boxes.append(Box(self.map_cfg[f"box_{i+1}"]["x"], self.map_cfg[f"box_{i+1}"]["y"]))
             self.agent_paths[i] = [(self.agents[i].x, self.agents[i].y)]
+
+            #Update the map with obstacles
+            self.create_obstacle(x=self.map_cfg[f"obstacle_{i+1}"]["x"], y=self.map_cfg[f"obstacle_{i+1}"]["y"], lot=i+1, config=self.map_cfg[f"obstacle_{i+1}"]["config"])
         
-        self.map_w, self.map_h = self.map_cfg["width"], self.map_cfg["height"]
-        self.map_real = np.zeros(shape=(self.map_h, self.map_w))
+        #print(self.liste_coor_brick)
+        
         items = []
         items.extend(self.keys)
         items.extend(self.boxes)
-        offsets = [[(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)], [(-2, -2), (-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (2, -1), (-2, 0), (2, 0), (-2, 1), ( 2, 1), (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2)]]
         for item in items:
-            for i, sub_list in enumerate(offsets):
+            for i, sub_list in enumerate(self.offsets):
                 for dx, dy in sub_list:
                     if dx != 0 or dy != 0:
                         self.add_val(item.x + dx, item.y + dy, item.neighbour_percent/(i+1))
@@ -98,6 +109,48 @@ class Game:
         for i, box in enumerate(self.boxes):    #check if it's a box
             if (self.agents[agent_id].x == box.x) and (self.agents[agent_id].y == box.y):
                 return  {"sender": GAME_ID, "header": GET_ITEM_OWNER, "owner": i, "type": BOX_TYPE}
+            
+    ### ADDED BY US
+    def create_obstacle(self, x, y, lot, config=1):
+        """Add obstacles and save the position of all bricks"""
+        self.liste_coor_brick[f"block_{lot}"] = {}
+
+        for idx in range(3):
+            self.nb_brick+=1
+            if config == 1:
+                # L
+                y_line = (y+idx, x)
+                x_line = (y+2, x+idx)
+
+            if config == 2:
+                # Γ
+                y_line = (y+idx, x)
+                x_line = (y, x+idx)
+            
+            if config == 3:
+                # vertical symetric  L
+                y_line = (y+idx, x)
+                x_line = (y+2, x-idx)
+            
+            if config == 4:
+                # vertical symetric  Γ
+                y_line = (y+idx, x)
+                x_line = (y, x-idx)
+            
+            
+            self.liste_coor_brick[f"block_{lot}"][f"bricks_{idx+1}"] = y_line
+            self.liste_coor_brick[f"block_{lot}"][f"bricks_{3+idx}"] = x_line
+
+            self.map_real[y_line] = 1
+            self.map_real[x_line] = 1
+            self.nb_brick += 5
+
+            for boundaries in self.offsets[0]:
+                if self.map_real[tuple(map(add, y_line, boundaries))] == 0:
+                    self.map_real[tuple(map(add, y_line, boundaries))] = 0.35
+
+                if self.map_real[tuple(map(add, x_line, boundaries))] == 0:
+                    self.map_real[tuple(map(add, x_line, boundaries))] = 0.35
 
 
 class Agent:
