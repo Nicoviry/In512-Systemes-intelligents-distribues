@@ -20,10 +20,11 @@ class Agent:
     def __init__(self, server_ip):
         #TODO: DEINE YOUR ATTRIBUTES HERE
         self.path = []
-        self.discover = 0
-        self.block = 0
+        self.discover, self.block, self.sent, self.previous_cell_val, self.flag, self.not_discover = 0, 0, 0, 0, 0, 0
+        self.items = {}
+        self.owner_value, self.type = None, None
         self.path_discover = []
-        self.robot_data = {0: {}, 1: {}, 2: {}, 3: {}}
+        
         #DO NOT TOUCH THE FOLLOWING INSTRUCTIONS
         self.network = Network(server_ip=server_ip)
         self.agent_id = self.network.id
@@ -37,7 +38,6 @@ class Agent:
         self.w, self.h = env_conf["w"], env_conf["h"]   #environment dimensions
         self.matrice = np.ones((self.w, self.h))*100
         self.cell_val = env_conf["cell_val"] #value of the cell the agent is located in
-        self.previous_cell_val = 0
         print(self.cell_val)
         Thread(target=self.msg_cb, daemon=True).start()
         print("hello")
@@ -58,11 +58,24 @@ class Agent:
                 self.nb_agent_expected = msg["nb_agents"]
             elif msg["header"] == GET_NB_CONNECTED_AGENTS:
                 self.nb_agent_connected = msg["nb_connected_agents"]
-
+            elif msg["header"] == GET_ITEM_OWNER:
+                print(msg)
+                if msg['owner']!=None:
+                    self.owner_value = msg["owner"]
+                    self.type = msg["type"]
+            elif msg["header"] == BROADCAST_MSG:
+                print(msg)
+                x, y = msg["position"][0], msg["position"][1]
+                object_type = msg["Msg type"]
+                object_type_str = "Key" if object_type == 0 else "Chest"
+                if object_type == 4:
+                    object_type_str = "2 items"
+                owner = msg["owner"]
+                print(x,y,object_type_str, owner)
+                self.give_objects(x,y,object_type_str, owner) #give the objects to the good robots
             print("hellooo: ", msg)
             print("agent_id ", self.agent_id)
             
-
     def wait_for_connected_agent(self):
         self.network.send({"header": GET_NB_AGENTS})
         check_conn_agent = True
@@ -74,23 +87,18 @@ class Agent:
     #TODO: CREATE YOUR METHODS HERE...
     
     def move_to(self, x_target, y_target):
-        #print(f"Robot {self.agent_id} moving to target ({x_target}, {y_target}).")
         print(f"Current position: ({self.x}, {self.y})")
-        #print(f"Environment matrix:\n{self.matrice}")
 
         cmds = {"header": MOVE}
 
         def is_navigable(x, y):
-            if 0 > x or x >= self.w and 0 > y or y>= self.h:
-                #print(y, self.h)
-                #print("1")
+            if 0 > x or x >= self.w or 0 > y or y >= self.h:
                 return False
             if self.cell_val == 0.35 and (self.matrice[y, x] in [1]):
-                #print("2")
                 return False
             return True
 
-        # Vérifie si la cible est accessible
+        # Verify if the target is accessible
         if not is_navigable(x_target, y_target):
             print(f"Target ({x_target}, {y_target}) is not reachable.")
             return
@@ -101,6 +109,8 @@ class Agent:
             visited.add((self.x, self.y))
 
             possible_moves = []
+
+            # Cardinal moves
             if is_navigable(self.x, self.y - 1) and (self.x, self.y - 1) not in visited:
                 possible_moves.append((UP, self.x, self.y - 1))
             if is_navigable(self.x, self.y + 1) and (self.x, self.y + 1) not in visited:
@@ -110,7 +120,18 @@ class Agent:
             if is_navigable(self.x + 1, self.y) and (self.x + 1, self.y) not in visited:
                 possible_moves.append((RIGHT, self.x + 1, self.y))
 
+            # Diagonal moves
+            if is_navigable(self.x - 1, self.y - 1) and (self.x - 1, self.y - 1) not in visited:
+                possible_moves.append((UP_LEFT, self.x - 1, self.y - 1))
+            if is_navigable(self.x + 1, self.y - 1) and (self.x + 1, self.y - 1) not in visited:
+                possible_moves.append((UP_RIGHT, self.x + 1, self.y - 1))
+            if is_navigable(self.x - 1, self.y + 1) and (self.x - 1, self.y + 1) not in visited:
+                possible_moves.append((DOWN_LEFT, self.x - 1, self.y + 1))
+            if is_navigable(self.x + 1, self.y + 1) and (self.x + 1, self.y + 1) not in visited:
+                possible_moves.append((DOWN_RIGHT, self.x + 1, self.y + 1))
+
             if possible_moves:
+                # Select the best move based on distance to the target
                 best_move = min(
                     possible_moves,
                     key=lambda move: abs(move[1] - x_target) + abs(move[2] - y_target)
@@ -118,6 +139,9 @@ class Agent:
                 cmds["direction"] = best_move[0]
                 print(f"Robot {self.agent_id} moves {best_move[0]} to ({best_move[1]}, {best_move[2]}).")
                 self.network.send(cmds)
+
+                # Update the robot's position
+                self.x, self.y = best_move[1], best_move[2]
             else:
                 print(f"Robot {self.agent_id} is stuck at ({self.x}, {self.y}).")
                 return
@@ -126,7 +150,7 @@ class Agent:
 
     def path_agent_0(self, division):
         if self.agent_id == 0:
-            descente = np.abs(2-int(self.h/division))-3
+            descente = np.abs(1-int(self.h/division))-3
             self.path.append([2,2])
             while(self.path[-1][0]<((self.w/2)+2)):
                 for i in range(descente):
@@ -155,7 +179,7 @@ class Agent:
 
     def path_agent_1(self, division):
         if self.agent_id == 1:
-            descente = np.abs(2-int(self.h/division))-3
+            descente = np.abs(1-int(self.h/division))-3
             self.path.append([self.w-3,2])
             while(self.path[-1][0]>((self.w/2)-2)):
                 for i in range(descente):
@@ -178,7 +202,7 @@ class Agent:
 
     def path_agent_2(self, division):
         if self.agent_id == 2:
-            descente = np.abs(2-int(self.h/division))-3
+            descente = np.abs(1-int(self.h/division))-3
             self.path.append([2,self.h-3])
             while(self.path[-1][0]<((self.w/2)-2)):
                 for i in range(descente):
@@ -201,7 +225,7 @@ class Agent:
 
     def path_agent_3(self, division):
         if self.agent_id == 3:
-            descente = np.abs(2-int(self.h/division))-3
+            descente = np.abs(1-int(self.h/division))-3
             self.path.append([self.w-3,self.h-3])
             while(self.path[-1][0]>((self.w/2)-2)):
                 for i in range(descente):
@@ -221,17 +245,15 @@ class Agent:
                     if (self.path[-1][0]<((self.w/2))):
                         return 0
         print(self.path)
-
     
     def move(self):
-        print(self.path_discover)
-
-        if self.path and self.discover == 0:
+        #print("flag = ",Agent.global_flag)
+        if self.path and self.discover == 0 and self.flag == 0:
             self.move_to(self.path[0][0], self.path[0][1])
             if [self.x, self.y] == [self.path[0][0], self.path[0][1]]:
                 self.path.pop(0)
 
-        if self.cell_val not in [0, 0.35] and self.matrice[self.x][self.y] == 100 and self.block == 0:
+        if self.cell_val not in [0, 0.35] and self.matrice[self.x][self.y] == 100 and self.block == 0 and self.not_discover == 0:
             self.previous_cell_val=self.cell_val
             self.discover = 1
 
@@ -239,8 +261,26 @@ class Agent:
 
         if self.discover == 1:
             self.cell_detection()
-
         
+        if self.not_discover == 1 and self.flag == 0 and self.path == []:
+            print("Every boxes have been opened")
+            time.sleep(5)
+
+        if self.flag == 1: #if every object has been found
+            #time.sleep(0.5)
+            self.path = []
+            Key = self.items["Key"]
+            Chest = self.items["Chest"]
+            self.path.append(Key)
+            self.path.append(Chest)
+            if "test" in self.items: #if the robot already discovered its key
+                self.path = []
+                self.path.append(Chest)
+            #print("PATH = ",self.path)
+            self.items = {}
+            self.flag = 0   
+            self.not_discover = 1
+ 
     def cell_detection(self):
         self.block = 1
         directions = [
@@ -272,27 +312,34 @@ class Agent:
         for direction in directions:
             if self.cell_val == 1:
                 print("Found object!")
-                self.discover = 0
-                owner, object_type = self.owner()
-                #print("##### owner : ", owner, " Type : ", object_type)
-                object_type_str = "Key" if object_type == 0 else "Chest"
+                self.network.send({"header": GET_ITEM_OWNER})
+                time.sleep(0.5) #letting the time for the network to send the msg because I had dome trouble with this
+                object_type_str = "Key" if self.type == 0 else "Chest"
+                if self.owner_value == self.agent_id:
+                    self.items[object_type_str] = [self.x, self.y]
+                    print(self.items)
+                if self.owner_value == self.agent_id and object_type_str == "Key":
+                    self.items["test"] = 1 #if the key owned by the robot x has been found by the robot x
+                else:
+                    cmds = {"header": BROADCAST_MSG}
+                    cmds["Msg type"] = self.type
+                    cmds["position"] = (self.x, self.y)
+                    cmds["owner"] = self.owner_value
+                    self.network.send(cmds)
                 self.bounding(self.x, self.y, object_type_str)
                 self.previous_cell_val=0
                 self.block = 0
-                print(self.x, self.y, object_type_str, owner)
-                #self.give_objects(self.x, self.y, object_type_str, owner)
+                self.discover = 0
+                #self.check_all_objects_found()
                 return
 
     def give_objects(self, x, y, object_type, owner):
-      
-        # Assign the object to the robot
-        self.robot_data[owner][object_type] = [x, y]
-        
-        # Print the current state of the robot data
-        for robot_id, objects in self.robot_data.items():
-            print(f"Robot {robot_id + 1}: {objects}")
-
-
+        if self.agent_id == owner:
+            self.items[object_type] = [x,y] 
+            print(self.items)
+        if object_type == "2 items":
+            self.items[owner] = 1
+            print(self.items)
 
     def plot_matrix(self):
         # Assuming self.matrice is a 2D array (list of lists)
@@ -342,6 +389,11 @@ class Agent:
                     self.matrice[neighbor_x][neighbor_y] = value
 
     def launch(self):#setting up the robots depending on the number of robots expected
+        while self.nb_agent_connected != self.nb_agent_expected: #Waiting for all agents to connect before launching them
+            cmds = {"header": GET_NB_CONNECTED_AGENTS}
+            self.network.send(cmds)
+            #print("Waiting for agents", self.nb_agent_connected , self.nb_agent_expected)
+            time.sleep(0.2)
         if self.nb_agent_expected == 2:
             self.path_agent_0(1)
             self.path_agent_1(1)
@@ -355,13 +407,27 @@ class Agent:
             self.path_agent_2(2)
             self.path_agent_3(2)
 
-    def owner(self):
-        cmds = {"header": GET_ITEM_OWNER}
-        response = self.network.send(cmds)  # Send request to server
-        if isinstance(response, dict) and 'owner' in response and 'type' in response:
-            return response['owner'], response['type']  # Return both owner and type
-        return None, None  # Fallback if owner or type not found
-
+    def check_all_objects_found(self):
+        if ("Chest" in self.items and "Key" in self.items) and self.sent == 0:
+            cmds = {"header": BROADCAST_MSG}
+            cmds["Msg type"] = 4 # To knwo when a robot has the coordiantes of its two items
+            cmds["position"] = (100,100) #we don't need it
+            cmds["owner"] = self.agent_id
+            self.network.send(cmds)
+            time.sleep(0.5)
+            self.sent = 1 #to send it only 1 time
+            self.items[self.agent_id] = 1 #adding the "1" in the dictionnary so we can know that the robot has the coordinates of the 2 items
+            print(self.items)
+        var = 0
+        if self.flag == 0:
+            for i in range(self.nb_agent_expected):
+                if i in self.items:
+                    var += 1
+            #print("VAR = ", var)
+            if var == self.nb_agent_expected:
+                #time.sleep(0.5)
+                self.flag = 1
+        #print("FLAG = ",self.flag)
 
 
 if __name__ == "__main__":
@@ -370,23 +436,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--server_ip", help="Ip address of the server", type=str, default="localhost")
     args = parser.parse_args()
-    
     agent = Agent(args.server_ip)
 
     agent.launch()
     #agent.path_agent_0(2)
-    try:    #Manual control test0
+    try:  
         while True:
             agent.move()
-            
-            """cmds = {"header": int(input("0 <-> Broadcast msg\n1 <-> Get data\n2 <-> Move\n3 <-> Get nb connected agents\n4 <-> Get nb agents\n5 <-> Get item owner\n"))}
-            if cmds["header"] == BROADCAST_MSG:
-                cmds["Msg type"] = int(input("1 <-> Key discovered\n2 <-> Box discovered\n3 <-> Completed\n"))
-                cmds["position"] = (agent.x, agent.y)
-                cmds["owner"] = randint(0,3) # TODO: specify the owner of the item
-            elif cmds["header"] == MOVE:
-                cmds["direction"] = int(input("0 <-> Stand\n1 <-> Left\n2 <-> Right\n3 <-> Up\n4 <-> Down\n5 <-> UL\n6 <-> UR\n7 <-> DL\n8 <-> DR\n"))
-            """
+            agent.check_all_objects_found()
 
     except KeyboardInterrupt:
         pass
