@@ -149,8 +149,12 @@ class Agent:
             time.sleep(0.1)
 
     def path_agent_0(self, division):
+        if division==1:
+            a = 2
+        if division == 2:
+            a = 1
         if self.agent_id == 0:
-            descente = np.abs(1-int(self.h/division))-3
+            descente = np.abs(a-int(self.h/division))-3
             self.path.append([2,2])
             while(self.path[-1][0]<((self.w/2)+2)):
                 for i in range(descente):
@@ -178,8 +182,12 @@ class Agent:
         print(self.path)
 
     def path_agent_1(self, division):
+        if division==1:
+            a = 2
+        if division == 2:
+            a = 1
         if self.agent_id == 1:
-            descente = np.abs(1-int(self.h/division))-3
+            descente = np.abs(a-int(self.h/division))-3
             self.path.append([self.w-3,2])
             while(self.path[-1][0]>((self.w/2)-2)):
                 for i in range(descente):
@@ -201,8 +209,12 @@ class Agent:
         print(self.path)
 
     def path_agent_2(self, division):
+        if division==1:
+            a = 2
+        if division == 2:
+            a = 1
         if self.agent_id == 2:
-            descente = np.abs(1-int(self.h/division))-3
+            descente = np.abs(a-int(self.h/division))-3
             self.path.append([2,self.h-3])
             while(self.path[-1][0]<((self.w/2)-2)):
                 for i in range(descente):
@@ -224,8 +236,12 @@ class Agent:
         print(self.path)
 
     def path_agent_3(self, division):
+        if division==1:
+            a = 2
+        if division == 2:
+            a = 1
         if self.agent_id == 3:
-            descente = np.abs(1-int(self.h/division))-3
+            descente = np.abs(a-int(self.h/division))-3
             self.path.append([self.w-3,self.h-3])
             while(self.path[-1][0]>((self.w/2)-2)):
                 for i in range(descente):
